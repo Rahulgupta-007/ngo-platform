@@ -1,32 +1,24 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet'); // <--- Import
-require('dotenv').config();
+const helmet = require('helmet'); 
+const { Pool } = require('pg'); // Required for the Magic Setup
 const sequelize = require('./config/db');
 
 const app = express();
-// CORS Configuration
-const allowedOrigins = [
-  'http://localhost:3000', // Local Dev
-  process.env.FRONTEND_URL // Production URL (We will set this later)
-];
 
-// Add this helper near the top if not present
-const cors = require('cors'); 
+// --- MIDDLEWARE ---
+app.use(helmet()); // Adds security headers
 
-// REPLACE YOUR OLD app.use(cors(...)) WITH THIS:
+// CORS Configuration (Updated for Vercel)
 app.use(cors({
   origin: [
     "http://localhost:3000",                // Trust your laptop
-    process.env.FRONTEND_URL                // Trust the URL from Render settings
+    process.env.FRONTEND_URL                // Trust the Vercel URL
   ],
   credentials: true
 }));
 
-app.use(express.json());
-
-// --- MIDDLEWARE ---
-app.use(cors());
 app.use(express.json());
 
 // --- ROUTES ---
@@ -42,11 +34,52 @@ app.get('/', (req, res) => {
   res.send('NGO Nexus API is Running...');
 });
 
+// --- MAGIC DATABASE SETUP ROUTE ---
+// Visit this link ONE TIME to create your tables: 
+// https://your-backend.onrender.com/setup-db
+app.get('/setup-db', async (req, res) => {
+  try {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false } // Required for Render
+    });
+
+    console.log("⏳ Creating tables...");
+
+    // 1. Create Users Table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'donor',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 2. Create Donations Table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS donations (
+        id SERIAL PRIMARY KEY,
+        campaign_id VARCHAR(255) NOT NULL,
+        amount VARCHAR(255) NOT NULL,
+        payment_method VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    res.send("<h1>✅ Success! Database Tables Created. You can now Register.</h1>");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("<h1>❌ Error: " + error.message + "</h1>");
+  }
+});
+// ----------------------------------
+
 // --- SERVER START ---
 const PORT = process.env.PORT || 5000;
 
-// CORRECTED LINE: proper function call with empty parentheses ()
-// This stops the database from deleting itself on restart.
 sequelize.sync({ force: false }).then(() => {
   console.log("✅ Database Synced");
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
